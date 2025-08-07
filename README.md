@@ -2,9 +2,12 @@
 
 High-performance distributed API rate limiting service built with Rust. Enterprise-grade features at startup prices.
 
+
+<!-- 
 [![CI](https://github.com/ratewatch/ratewatch/workflows/CI/badge.svg)](https://github.com/ratewatch/ratewatch/actions)
 [![Security Audit](https://github.com/ratewatch/ratewatch/workflows/Security/badge.svg)](https://github.com/ratewatch/ratewatch/security)
 [![Coverage](https://codecov.io/gh/ratewatch/ratewatch/branch/main/graph/badge.svg)](https://codecov.io/gh/ratewatch/ratewatch)
+  -->
 
 ## Quick Start
 
