@@ -169,8 +169,7 @@ Content-Type: application/json
   "key": "user:123",
   "limit": 100,
   "window": 3600,
-  "cost": 1,
-  "algorithm": "sliding_window"
+  "cost": 1
 }
 ```
 
@@ -179,12 +178,51 @@ Content-Type: application/json
 {
   "allowed": true,
   "remaining": 99,
-  "resetIn": 3542,
-  "retryAfter": null,
-  "metadata": {
-    "algorithm": "sliding_window",
-    "globalLimit": false
-  }
+  "reset_in": 3542,
+  "retry_after": null
+}
+```
+
+### GDPR Data Deletion
+```http
+POST /v1/privacy/delete
+Authorization: Bearer {api_key}
+Content-Type: application/json
+
+{
+  "user_id": "user:123",
+  "reason": "user_request"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Successfully deleted data for user user:123",
+  "deleted_keys": 5
+}
+```
+
+### User Data Summary
+```http
+POST /v1/privacy/summary
+Authorization: Bearer {api_key}
+Content-Type: application/json
+
+{
+  "user_id": "user:123"
+}
+```
+
+**Response:**
+```json
+{
+  "user_id": "user:123",
+  "total_keys": 3,
+  "total_requests": 147,
+  "active_windows": 2,
+  "data_retention_days": 30
 }
 ```
 

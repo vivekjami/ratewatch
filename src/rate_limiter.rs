@@ -61,4 +61,11 @@ impl RateLimiter {
             })
         }
     }
+
+    pub async fn health_check(&self) -> anyhow::Result<()> {
+        let mut conn = self.redis.get_async_connection().await?;
+        // Use a simple GET operation instead of ping for health check
+        let _: Option<String> = conn.get("_health_check").await.unwrap_or(None);
+        Ok(())
+    }
 }
