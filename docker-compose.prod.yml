@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  ratewatch:
+    build: .
+    ports:
+      - "8081:8081"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - PORT=8081
+      - API_KEY_SECRET=${API_KEY_SECRET:-change-this-to-a-secure-random-string-minimum-32-characters}
+      - RUST_LOG=${RUST_LOG:-info}
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-}
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/nginx.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    depends_on:
+      - ratewatch
+    restart: unless-stopped
+
+volumes:
+  redis_data:

@@ -1,0 +1,29 @@
+[Unit]
+Description=RateWatch API Server
+After=network.target
+Wants=redis.service
+
+[Service]
+Type=simple
+User=ratewatch
+Group=ratewatch
+WorkingDirectory=/opt/ratewatch
+Environment=RUST_LOG=info
+Environment=PORT=8081
+Environment=REDIS_URL=redis://127.0.0.1:6379
+Environment=API_KEY_SECRET=your-production-secret-key-change-this
+ExecStart=/opt/ratewatch/target/release/ratewatch
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/ratewatch/logs
+
+[Install]
+WantedBy=multi-user.target

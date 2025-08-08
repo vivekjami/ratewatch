@@ -30,6 +30,10 @@ chrono = { version = "0.4", features = ["serde"] }
 blake3 = "1.5"
 # HTTP middleware and utilities
 tower = "0.5"
-tower-http = { version = "0.5", features = ["cors", "trace", "set-header"] }
+tower-http = { version = "0.5", features = ["cors", "trace", "set-header", "fs"] }
 # Hex encoding for API key hashes
 hex = "0.4"
+# Prometheus metrics
+prometheus = "0.13"
+# Lazy static for global metrics
+once_cell = "1.19"

@@ -1,5 +1,7 @@
+mod analytics;
 mod api;
 mod auth;
+mod metrics;
 mod privacy;
 mod rate_limiter;
 
@@ -9,6 +11,7 @@ use std::{env, sync::Arc};
 use tokio::net::TcpListener;
 use tracing_subscriber;
 
+use analytics::AnalyticsManager;
 use auth::ApiKeyValidator;
 use privacy::PrivacyManager;
 
@@ -40,12 +43,16 @@ async fn main() -> Result<()> {
     let privacy_manager = Arc::new(PrivacyManager::new(
         redis::Client::open(redis_url.as_str())?
     ));
+    let analytics_manager = Arc::new(AnalyticsManager::new(
+        redis::Client::open(redis_url.as_str())?
+    ));
     
     // Create secure router
     let app = api::create_secure_router(
         rate_limiter,
         api_key_validator,
         privacy_manager,
+        analytics_manager,
     );
     
     // Start server
