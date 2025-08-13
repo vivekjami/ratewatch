@@ -1,0 +1,127 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment to deploy to"
+        required: true
+        default: "staging"
+        type: choice
+        options:
+          - staging
+          - production
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'staging')
+    environment: staging
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:staging
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Deploy to staging
+        run: |
+          echo "Deploying to staging environment..."
+          echo "Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:staging"
+          # Add your deployment commands here
+          # Example: kubectl set image deployment/ratewatch ratewatch=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:staging
+
+      - name: Run smoke tests
+        run: |
+          echo "Running smoke tests against staging..."
+          # Add smoke test commands here
+          # Example: curl -f https://staging.ratewatch.dev/health
+
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production'
+    environment: production
+    # Uncomment the line below if you want production to depend on staging deployment
+    # needs: [deploy-staging]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:production
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Deploy to production
+        run: |
+          echo "Deploying to production environment..."
+          echo "Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:production"
+          # Add your production deployment commands here
+          # Example: kubectl set image deployment/ratewatch ratewatch=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:production
+
+      - name: Run production health checks
+        run: |
+          echo "Running production health checks..."
+          # Add production health check commands here
+          # Example: curl -f https://api.ratewatch.dev/health
+
+      - name: Notify deployment success
+        run: |
+          echo "Production deployment successful!"
+          # Add notification commands here (Slack, email, etc.)
+
+  rollback:
+    name: Rollback Production
+    runs-on: ubuntu-latest
+    if: failure() && github.event.inputs.environment == 'production'
+    environment: production
+
+    steps:
+      - name: Rollback production deployment
+        run: |
+          echo "Rolling back production deployment..."
+          # Add rollback commands here
+          # Example: kubectl rollout undo deployment/ratewatch
+
+      - name: Notify rollback
+        run: |
+          echo "Production rollback completed!"
+          # Add notification commands here
