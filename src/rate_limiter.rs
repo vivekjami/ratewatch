@@ -30,6 +30,17 @@ impl RateLimiter {
 
     /// Check rate limit using Redis sliding window algorithm with automatic TTL for GDPR compliance
     pub async fn check(&self, req: RateLimitRequest) -> anyhow::Result<RateLimitResponse> {
+        // Validate input parameters
+        if req.window == 0 {
+            return Err(anyhow::anyhow!("Window size cannot be zero"));
+        }
+        if req.limit == 0 {
+            return Err(anyhow::anyhow!("Limit cannot be zero"));
+        }
+        if req.key.is_empty() {
+            return Err(anyhow::anyhow!("Key cannot be empty"));
+        }
+
         let mut conn = self
             .redis
             .get_async_connection()
