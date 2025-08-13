@@ -1,49 +1,39 @@
-# Build stage
-FROM rust:1.75-slim as builder
+# Build stage - use specific version and Alpine for security
+FROM rust:1.82-alpine AS builder
 
 WORKDIR /app
 
-# Install build dependencies
-RUN apt-get update && apt-get install -y \
-    pkg-config \
-    libssl-dev \
-    && rm -rf /var/lib/apt/lists/*
+# Install build dependencies for Alpine
+RUN apk add --no-cache \
+    musl-dev \
+    pkgconfig \
+    openssl-dev \
+    openssl-libs-static
 
-# Copy manifests
+# Copy manifests and source code
 COPY Cargo.toml Cargo.lock ./
-
-# Copy source code
 COPY src ./src
 
-# Build optimized binary
-RUN cargo build --release
+# Build statically linked binary for security and portability
+ENV RUSTFLAGS="-C target-feature=+crt-static"
+RUN cargo build --release --target x86_64-unknown-linux-musl
 
-# Runtime stage
-FROM debian:bookworm-slim
-
-# Install runtime dependencies
-RUN apt-get update && \
-    apt-get install -y \
-    ca-certificates \
-    libssl3 \
-    && rm -rf /var/lib/apt/lists/*
+# Runtime stage - use distroless for minimal attack surface
+FROM gcr.io/distroless/static-debian12:nonroot
 
 WORKDIR /app
 
-# Copy binary from builder stage
-COPY --from=builder /app/target/release/ratewatch .
+# Copy statically linked binary (no dependencies needed)
+COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/ratewatch .
 COPY static ./static
 
-# Create non-root user
-RUN useradd -m -u 1000 ratewatch && \
-    chown -R ratewatch:ratewatch /app
-
-USER ratewatch
+# Set environment variables
+ENV RUST_LOG=info
+ENV PORT=8081
 
 EXPOSE 8081
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8081/health || exit 1
+# Distroless runs as nonroot user by default (uid 65532)
+# No health check in distroless - handle externally
 
 CMD ["./ratewatch"]

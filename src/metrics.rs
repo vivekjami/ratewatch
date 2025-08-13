@@ -1,16 +1,14 @@
 use once_cell::sync::Lazy;
 use prometheus::{
-    Counter, Histogram, IntCounter, IntGauge, Opts, Registry, TextEncoder, Encoder,
+    Counter, Histogram, IntCounter, IntGauge, Registry, TextEncoder,
     HistogramOpts,
 };
 use axum::{
-    extract::State,
     http::StatusCode,
     response::Response,
     routing::get,
     Router,
 };
-use std::sync::Arc;
 
 // Global metrics
 pub static REGISTRY: Lazy<Registry> = Lazy::new(|| {

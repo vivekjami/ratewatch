@@ -28,17 +28,7 @@ pub struct AppState {
     pub privacy: Arc<PrivacyManager>,
 }
 
-pub fn create_router(rate_limiter: Arc<RateLimiter>) -> Router {
-    // Create a dummy privacy manager for backwards compatibility
-    let _dummy_privacy_manager = Arc::new(PrivacyManager::new(
-        redis::Client::open("redis://127.0.0.1:6379").unwrap()
-    ));
-    
-    Router::new()
-        .route("/v1/check", post(check_rate_limit_simple))
-        .route("/health", get(health_check_simple))
-        .with_state(rate_limiter)
-}
+
 
 pub fn create_secure_router(
     rate_limiter: Arc<RateLimiter>,
@@ -122,21 +112,7 @@ async fn serve_dashboard() -> Html<String> {
     }
 }
 
-async fn check_rate_limit_simple(
-    State(rate_limiter): State<Arc<RateLimiter>>,
-    Json(payload): Json<RateLimitRequest>,
-) -> Result<Json<Value>, StatusCode> {
-    match rate_limiter.check(payload).await {
-        Ok(response) => {
-            tracing::debug!("Rate limit check completed successfully");
-            Ok(Json(json!(response)))
-        }
-        Err(err) => {
-            tracing::error!("Rate limit check failed: {}", err);
-            Err(StatusCode::INTERNAL_SERVER_ERROR)
-        }
-    }
-}
+
 
 async fn check_rate_limit(
     State(app_state): State<Arc<AppState>>,
@@ -233,13 +209,7 @@ async fn get_user_data_summary(
     }
 }
 
-async fn health_check_simple() -> Json<Value> {
-    Json(json!({
-        "status": "ok",
-        "timestamp": chrono::Utc::now().to_rfc3339(),
-        "version": env!("CARGO_PKG_VERSION")
-    }))
-}
+
 
 async fn health_check() -> Json<Value> {
     Json(json!({
