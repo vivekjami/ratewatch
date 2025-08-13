@@ -20,15 +20,13 @@ use crate::analytics::AnalyticsManager;
 use crate::auth::{auth_middleware, ApiKeyValidator};
 use crate::metrics;
 use crate::privacy::{DataDeletionRequest, PrivacyManager};
-use crate::rate_limiter::{RateLimiter, RateLimitRequest};
+use crate::rate_limiter::{RateLimitRequest, RateLimiter};
 
 pub struct AppState {
     pub rate_limiter: Arc<RateLimiter>,
     pub analytics: Arc<AnalyticsManager>,
     pub privacy: Arc<PrivacyManager>,
 }
-
-
 
 pub fn create_secure_router(
     rate_limiter: Arc<RateLimiter>,
@@ -54,11 +52,9 @@ pub fn create_secure_router(
         .with_state(app_state.clone());
 
     // Analytics routes (also protected)
-    let analytics_routes = crate::analytics::create_analytics_router(analytics)
-        .layer(middleware::from_fn_with_state(
-            api_key_validator,
-            auth_middleware,
-        ));
+    let analytics_routes = crate::analytics::create_analytics_router(analytics).layer(
+        middleware::from_fn_with_state(api_key_validator, auth_middleware),
+    );
 
     // Public routes (no authentication required)
     let public_routes = Router::new()
@@ -98,10 +94,12 @@ pub fn create_secure_router(
                     header::REFERRER_POLICY,
                     HeaderValue::from_static("strict-origin-when-cross-origin"),
                 ))
-                .layer(CorsLayer::new()
-                    .allow_origin(Any)
-                    .allow_methods(Any)
-                    .allow_headers(Any))
+                .layer(
+                    CorsLayer::new()
+                        .allow_origin(Any)
+                        .allow_methods(Any)
+                        .allow_headers(Any),
+                ),
         )
 }
 
@@ -112,14 +110,12 @@ async fn serve_dashboard() -> Html<String> {
     }
 }
 
-
-
 async fn check_rate_limit(
     State(app_state): State<Arc<AppState>>,
     Json(payload): Json<RateLimitRequest>,
 ) -> Result<Json<Value>, StatusCode> {
     let start_time = std::time::Instant::now();
-    
+
     // Record request
     metrics::REQUEST_TOTAL.inc();
 
@@ -128,7 +124,7 @@ async fn check_rate_limit(
             // Record metrics
             let duration = start_time.elapsed().as_secs_f64();
             metrics::REQUEST_DURATION.observe(duration);
-            
+
             if response.allowed {
                 metrics::RATE_LIMIT_HITS.inc();
             } else {
@@ -136,31 +132,36 @@ async fn check_rate_limit(
             }
 
             // Record analytics
-            let _ = app_state.analytics.record_request(
-                &payload.key,
-                response.allowed,
-                payload.window,
-            ).await;
+            let _ = app_state
+                .analytics
+                .record_request(&payload.key, response.allowed, payload.window)
+                .await;
 
             // Log activity if rate limited
             if !response.allowed {
-                let _ = app_state.analytics.log_activity(
-                    &format!("Rate limit exceeded for key: {}", payload.key),
-                    "warning",
-                    Some(&payload.key),
-                ).await;
+                let _ = app_state
+                    .analytics
+                    .log_activity(
+                        &format!("Rate limit exceeded for key: {}", payload.key),
+                        "warning",
+                        Some(&payload.key),
+                    )
+                    .await;
             }
 
             tracing::debug!("Rate limit check completed successfully");
             Ok(Json(json!(response)))
         }
         Err(err) => {
-            let _ = app_state.analytics.log_activity(
-                &format!("Rate limit check failed: {}", err),
-                "error",
-                Some(&payload.key),
-            ).await;
-            
+            let _ = app_state
+                .analytics
+                .log_activity(
+                    &format!("Rate limit check failed: {err}"),
+                    "error",
+                    Some(&payload.key),
+                )
+                .await;
+
             tracing::error!("Rate limit check failed: {}", err);
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
@@ -173,11 +174,17 @@ async fn delete_user_data(
 ) -> Result<Json<Value>, StatusCode> {
     match app_state.privacy.delete_user_data(&payload.user_id).await {
         Ok(response) => {
-            let _ = app_state.analytics.log_activity(
-                &format!("User data deleted for: {} (reason: {})", payload.user_id, payload.reason),
-                "info",
-                Some(&payload.user_id),
-            ).await;
+            let _ = app_state
+                .analytics
+                .log_activity(
+                    &format!(
+                        "User data deleted for: {} (reason: {})",
+                        payload.user_id, payload.reason
+                    ),
+                    "info",
+                    Some(&payload.user_id),
+                )
+                .await;
 
             tracing::info!("Data deletion completed for user: {}", payload.user_id);
             Ok(Json(json!(response)))
@@ -193,7 +200,8 @@ async fn get_user_data_summary(
     State(app_state): State<Arc<AppState>>,
     Json(payload): Json<serde_json::Value>,
 ) -> Result<Json<Value>, StatusCode> {
-    let user_id = payload.get("user_id")
+    let user_id = payload
+        .get("user_id")
         .and_then(|v| v.as_str())
         .ok_or(StatusCode::BAD_REQUEST)?;
 
@@ -208,8 +216,6 @@ async fn get_user_data_summary(
         }
     }
 }
-
-
 
 async fn health_check() -> Json<Value> {
     Json(json!({

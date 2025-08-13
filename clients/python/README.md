@@ -1,6 +1,6 @@
 # RateWatch Python Client
 
-A Python client library for interacting with the RateWatch API rate limiting service.
+Python client library for the RateWatch API rate limiting service.
 
 ## Installation
 
@@ -13,30 +13,21 @@ pip install ratewatch
 ```python
 from ratewatch import RateWatch
 
-# Initialize the client
-client = RateWatch(api_key="your-api-key", base_url="http://localhost:8081")
-
-# Check rate limit
-result = client.check(
-    key="user:123",
-    limit=100,
-    window=3600,  # 1 hour in seconds
-    cost=1
-)
+client = RateWatch(api_key="your-api-key")
+result = client.check("user:123", limit=100, window=3600)
 
 if result.allowed:
-    print(f"Request allowed. {result.remaining} requests remaining.")
+    print(f"Request allowed. {result.remaining} remaining.")
 else:
-    print(f"Rate limit exceeded. Try again in {result.retry_after} seconds.")
+    print(f"Rate limited. Retry in {result.retry_after}s")
 ```
 
 ## Features
 
-- **Rate Limit Checking**: Check if a request is allowed based on configurable limits
-- **GDPR Compliance**: Delete user data and get data summaries
-- **Health Monitoring**: Check service health and dependencies
-- **Error Handling**: Comprehensive exception handling for different error scenarios
-- **Type Safety**: Full type hints for better IDE support
+- Rate limit checking with sliding window algorithm
+- GDPR compliance (data deletion and summaries)
+- Health monitoring and error handling
+- Full type hints for IDE support
 
 ## API Reference
 

@@ -2,7 +2,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "6380:6379"
     command: redis-server --appendonly yes
     volumes:
       - redis_data:/data
@@ -15,7 +15,7 @@ services:
   ratewatch:
     build: .
     ports:
-      - "8081:8081"
+      - "8083:8081"
     environment:
       - REDIS_URL=redis://redis:6379
       - PORT=8081

@@ -1,13 +1,11 @@
 # RateWatch Node.js Client
 
-A TypeScript/Node.js client library for interacting with the RateWatch API rate limiting service.
+TypeScript/Node.js client library for the RateWatch API rate limiting service.
 
 ## Installation
 
 ```bash
 npm install @ratewatch/client
-# or
-yarn add @ratewatch/client
 ```
 
 ## Quick Start
@@ -15,32 +13,23 @@ yarn add @ratewatch/client
 ```typescript
 import { RateWatch } from '@ratewatch/client';
 
-// Initialize the client
-const client = new RateWatch('your-api-key', 'http://localhost:8081');
-
-// Check rate limit
-const result = await client.check(
-  'user:123',
-  100,
-  3600, // 1 hour in seconds
-  1
-);
+const client = new RateWatch('your-api-key');
+const result = await client.check('user:123', 100, 3600);
 
 if (result.allowed) {
-  console.log(`Request allowed. ${result.remaining} requests remaining.`);
+    console.log(`Request allowed. ${result.remaining} remaining.`);
 } else {
-  console.log(`Rate limit exceeded. Try again in ${result.retryAfter} seconds.`);
+    console.log(`Rate limited. Retry in ${result.retryAfter}s`);
 }
 ```
 
 ## Features
 
-- **TypeScript Support**: Full type definitions included
-- **Rate Limit Checking**: Check if a request is allowed based on configurable limits
-- **GDPR Compliance**: Delete user data and get data summaries
-- **Health Monitoring**: Check service health and dependencies
-- **Error Handling**: Comprehensive exception handling for different error scenarios
-- **Async/Await**: Modern Promise-based API
+- Full TypeScript support with type definitions
+- Rate limit checking with sliding window algorithm
+- GDPR compliance (data deletion and summaries)
+- Health monitoring and error handling
+- Modern Promise-based API
 
 ## API Reference
 
