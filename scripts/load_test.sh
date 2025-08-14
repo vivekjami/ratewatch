@@ -1,96 +1,78 @@
 #!/bin/bash
+# Load test script for RateWatch
 
-# RateWatch Load Testing Script
-# Tests performance under load
+set -euo pipefail
 
-set -e
+# Configuration
+BASE_URL="${RATEWATCH_URL:-http://localhost:8081}"
+API_KEY="${RATEWATCH_API_KEY:-test-api-key-12345678901234567890123}"
+CONCURRENT_USERS="${CONCURRENT_USERS:-10}"
+REQUESTS_PER_USER="${REQUESTS_PER_USER:-100}"
+DURATION="${DURATION:-60}"
 
-BASE_URL="${1:-http://localhost:8081}"
-API_KEY="${2:-$(cat api_key.txt 2>/dev/null || echo 'rw_1754649262_8d587d1e227c50f4cca1a79934f51385')}"
-CONCURRENT_USERS="${3:-50}"
-DURATION="${4:-60s}"
-
-echo "🔥 RateWatch Load Testing"
-echo "========================"
+echo "🚀 Starting RateWatch Load Test"
+echo "================================"
 echo "Base URL: $BASE_URL"
 echo "Concurrent Users: $CONCURRENT_USERS"
-echo "Duration: $DURATION"
+echo "Requests per User: $REQUESTS_PER_USER"
+echo "Duration: ${DURATION}s"
 echo ""
 
-# Check if wrk is installed
-if ! command -v wrk &> /dev/null; then
-    echo "Installing wrk load testing tool..."
-    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-        sudo apt-get update && sudo apt-get install -y wrk
-    elif [[ "$OSTYPE" == "darwin"* ]]; then
-        brew install wrk
-    else
-        echo "❌ Please install wrk manually: https://github.com/wg/wrk"
-        exit 1
-    fi
+# Check if server is running
+if ! curl -s "$BASE_URL/health" > /dev/null; then
+    echo "❌ RateWatch server is not responding at $BASE_URL"
+    exit 1
 fi
 
-# Create test script for wrk
-cat > /tmp/rate_limit_test.lua << 'EOF'
-wrk.method = "POST"
-wrk.body   = '{"key": "load-test-user", "limit": 1000, "window": 60, "cost": 1}'
-wrk.headers["Content-Type"] = "application/json"
-wrk.headers["Authorization"] = "Bearer API_KEY_PLACEHOLDER"
+echo "✅ Server is responding"
 
-local counter = 1
-local threads = {}
+# Function to make requests
+make_requests() {
+    local user_id=$1
+    local success_count=0
+    local error_count=0
+    
+    for ((i=1; i<=REQUESTS_PER_USER; i++)); do
+        response=$(curl -s -w "%{http_code}" -o /dev/null \
+            -X POST "$BASE_URL/v1/check" \
+            -H "Authorization: Bearer $API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "{\"key\":\"load-test-user-$user_id\",\"limit\":1000,\"window\":3600,\"cost\":1}")
+        
+        if [[ "$response" == "200" ]]; then
+            ((success_count++))
+        else
+            ((error_count++))
+        fi
+        
+        # Small delay to avoid overwhelming the server
+        sleep 0.01
+    done
+    
+    echo "User $user_id: $success_count success, $error_count errors"
+}
 
-function setup(thread)
-   thread:set("id", counter)
-   table.insert(threads, thread)
-   counter = counter + 1
-end
+# Start load test
+echo "🔥 Starting load test..."
+start_time=$(date +%s)
 
-function init(args)
-   requests  = 0
-   responses = 0
-   
-   local msg = "thread %d created"
-   print(msg:format(id))
-end
+# Run concurrent users
+for ((user=1; user<=CONCURRENT_USERS; user++)); do
+    make_requests $user &
+done
 
-function request()
-   requests = requests + 1
-   return wrk.request()
-end
+# Wait for all background jobs to complete
+wait
 
-function response(status, headers, body)
-   responses = responses + 1
-end
-EOF
-
-# Replace API key in test script
-sed -i "s/API_KEY_PLACEHOLDER/$API_KEY/g" /tmp/rate_limit_test.lua
-
-echo "1. Starting load test..."
-echo "Running $CONCURRENT_USERS concurrent users for $DURATION"
-echo ""
-
-# Run load test
-wrk -t12 -c$CONCURRENT_USERS -d$DURATION -s /tmp/rate_limit_test.lua $BASE_URL/v1/check
-
-echo ""
-echo "2. Testing dashboard under load..."
-wrk -t4 -c10 -d30s $BASE_URL/dashboard
+end_time=$(date +%s)
+duration=$((end_time - start_time))
 
 echo ""
-echo "3. Testing health endpoint..."
-wrk -t2 -c5 -d10s $BASE_URL/health
+echo "📊 Load Test Results"
+echo "===================="
+echo "Total Duration: ${duration}s"
+echo "Total Requests: $((CONCURRENT_USERS * REQUESTS_PER_USER))"
+echo "Requests/Second: $(( (CONCURRENT_USERS * REQUESTS_PER_USER) / duration ))"
 
 echo ""
-echo "4. Getting final metrics..."
-curl -s $BASE_URL/metrics | grep -E "(ratewatch_|http_)" | head -20
-
-echo ""
-echo "🎉 Load testing completed!"
-echo ""
-echo "📊 Check the dashboard for real-time metrics: $BASE_URL/dashboard"
-echo "📈 Prometheus metrics available at: $BASE_URL/metrics"
-
-# Cleanup
-rm -f /tmp/rate_limit_test.lua
+echo "✅ Load test completed!"

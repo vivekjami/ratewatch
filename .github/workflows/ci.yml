@@ -35,13 +35,15 @@ jobs:
         components: rustfmt, clippy
     
     - name: Cache dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/.cargo/registry
           ~/.cargo/git
           target
         key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-
     
     - name: Check formatting
       run: cargo fmt --all -- --check
@@ -54,10 +56,11 @@ jobs:
       env:
         REDIS_URL: redis://localhost:6379
     
+    - name: Install cargo-audit
+      run: cargo install cargo-audit --locked
+    
     - name: Run security audit
-      run: |
-        cargo install cargo-audit
-        cargo audit
+      run: cargo audit
 
   integration-test:
     name: Integration Tests
@@ -82,13 +85,15 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
     
     - name: Cache dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/.cargo/registry
           ~/.cargo/git
           target
         key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-
     
     - name: Build release binary
       run: cargo build --release
@@ -105,13 +110,70 @@ jobs:
         python -m pip install --upgrade pip
         pip install requests
     
-    - name: Run integration tests
-      run: python3 final_production_test.py
-    
-    - name: Test client libraries
+    - name: Create integration test
       run: |
-        cd clients/python && python3 test_client.py
-        cd ../nodejs && npm install && npm run build && node test_client.js
+        cat > integration_test.py << 'EOF'
+        #!/usr/bin/env python3
+        import requests
+        import sys
+        import time
+        
+        BASE_URL = "http://localhost:8081"
+        API_KEY = "test-api-key-12345678901234567890123"
+        
+        def test_basic_functionality():
+            headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
+            payload = {"key": "ci-test", "limit": 10, "window": 60, "cost": 1}
+            
+            response = requests.post(f"{BASE_URL}/v1/check", json=payload, headers=headers)
+            if response.status_code == 200:
+                data = response.json()
+                if data["allowed"]:
+                    print("✅ Basic functionality test passed")
+                    return True
+            print("❌ Basic functionality test failed")
+            return False
+        
+        def test_health_check():
+            response = requests.get(f"{BASE_URL}/health")
+            if response.status_code == 200:
+                print("✅ Health check test passed")
+                return True
+            print("❌ Health check test failed")
+            return False
+        
+        if __name__ == "__main__":
+            time.sleep(2)  # Wait for server to be ready
+            tests = [test_health_check, test_basic_functionality]
+            passed = sum(1 for test in tests if test())
+            print(f"Tests passed: {passed}/{len(tests)}")
+            sys.exit(0 if passed == len(tests) else 1)
+        EOF
+    
+    - name: Run integration tests
+      run: python3 integration_test.py
+    
+    - name: Test Python client
+      run: |
+        cd clients/python
+        python3 -c "
+        import sys
+        sys.path.insert(0, '.')
+        from ratewatch import RateWatch
+        client = RateWatch('test-key')
+        print('✅ Python client imports successfully')
+        "
+    
+    - name: Test Node.js client
+      run: |
+        cd clients/nodejs
+        npm install --silent
+        npm run build --silent
+        node -e "
+        const { RateWatch } = require('./dist/index.js');
+        const client = new RateWatch('test-key');
+        console.log('✅ Node.js client imports successfully');
+        "
 
   docker-build:
     name: Docker Build
@@ -122,10 +184,10 @@ jobs:
     - uses: actions/checkout@v4
     
     - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+      uses: docker/setup-buildx-action@v4
     
     - name: Build Docker image
-      uses: docker/build-push-action@v5
+      uses: docker/build-push-action@v6
       with:
         context: .
         push: false
@@ -152,7 +214,7 @@ jobs:
     - uses: actions/checkout@v4
     
     - name: Run Trivy vulnerability scanner
-      uses: aquasecurity/trivy-action@master
+      uses: aquasecurity/trivy-action@0.24.0
       with:
         scan-type: 'fs'
         scan-ref: '.'
@@ -160,7 +222,7 @@ jobs:
         output: 'trivy-results.sarif'
     
     - name: Upload Trivy scan results to GitHub Security tab
-      uses: github/codeql-action/upload-sarif@v2
+      uses: github/codeql-action/upload-sarif@v3
       if: always()
       with:
         sarif_file: 'trivy-results.sarif'

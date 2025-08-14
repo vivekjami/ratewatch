@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ratewatch-config
+  namespace: ratewatch
+data:
+  PORT: "8081"
+  RUST_LOG: "info"
+  REDIS_URL: "redis://ratewatch-redis:6379"
+  METRICS_ENABLED: "true"
+  HEALTH_CHECK_ENABLED: "true"
+  ANALYTICS_ENABLED: "true"
+  DATA_RETENTION_DAYS: "30"
+  PRIVACY_ENDPOINTS_ENABLED: "true"
+  AUDIT_LOGGING_ENABLED: "true"
+  ENVIRONMENT: "production"
+  LOG_LEVEL: "info"
+  LOG_FORMAT: "json"
+  STRUCTURED_LOGGING: "true"

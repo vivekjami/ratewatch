@@ -1,0 +1,102 @@
+name: Test Workflows
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/**'
+
+jobs:
+  validate-workflows:
+    name: Validate Workflow Syntax
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Validate workflow files
+      run: |
+        echo "Validating workflow syntax..."
+        
+        # Check for basic YAML syntax
+        for file in .github/workflows/*.yml; do
+          echo "Checking $file..."
+          python3 -c "
+        import yaml
+        import sys
+        try:
+            with open('$file', 'r') as f:
+                yaml.safe_load(f)
+            print('✅ $file is valid YAML')
+        except yaml.YAMLError as e:
+            print('❌ $file has YAML syntax error:', e)
+            sys.exit(1)
+        except Exception as e:
+            print('❌ Error reading $file:', e)
+            sys.exit(1)
+        "
+        done
+        
+        echo "All workflow files have valid YAML syntax!"
+    
+    - name: Check for required fields
+      run: |
+        echo "Checking for required workflow fields..."
+        
+        python3 -c "
+        import yaml
+        import sys
+        import glob
+        
+        for file in glob.glob('.github/workflows/*.yml'):
+            with open(file, 'r') as f:
+                content = yaml.safe_load(f)
+            
+            # Check required fields
+            if 'name' not in content:
+                print(f'❌ Missing name field in {file}')
+                sys.exit(1)
+                
+            # Check for 'on' field (might be parsed as True due to YAML/Python keyword conflict)
+            if 'on' not in content and True not in content:
+                print(f'❌ Missing on field in {file}')
+                sys.exit(1)
+                
+            if 'jobs' not in content:
+                print(f'❌ Missing jobs field in {file}')
+                sys.exit(1)
+        
+        print('✅ All workflow files have required fields')
+        "
+    
+    - name: Security check
+      run: |
+        echo "Performing security checks..."
+        
+        # Check for hardcoded secrets (basic check)
+        if grep -r "password.*:" .github/workflows/ | grep -v "secrets\." | grep -v "example"; then
+          echo "❌ Found potential hardcoded secrets"
+          exit 1
+        fi
+        
+        # Check for proper secret usage
+        if grep -r "secrets\." .github/workflows/ | grep -v "GITHUB_TOKEN" | grep -v "CARGO_REGISTRY_TOKEN" | grep -v "SNYK_TOKEN"; then
+          echo "⚠️  Found custom secrets - ensure they are properly configured in repository settings"
+        fi
+        
+        echo "✅ Security checks passed"
+    
+    - name: Best practices check
+      run: |
+        echo "Checking workflow best practices..."
+        
+        # Check for pinned action versions
+        if grep -r "uses:.*@main" .github/workflows/; then
+          echo "⚠️  Found actions using @main - consider pinning to specific versions"
+        fi
+        
+        if grep -r "uses:.*@master" .github/workflows/; then
+          echo "⚠️  Found actions using @master - consider pinning to specific versions"
+        fi
+        
+        echo "✅ Best practices check completed"
