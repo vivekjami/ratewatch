@@ -138,7 +138,6 @@ impl RateLimiter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio;
 
     fn create_test_request(key: &str, limit: u64, window: u64) -> RateLimitRequest {
         RateLimitRequest {
@@ -193,8 +192,7 @@ mod tests {
         if let Ok(limiter) = RateLimiter::new("redis://127.0.0.1:6379") {
             match limiter.health_check().await {
                 Ok(_) => {
-                    // Health check passed
-                    assert!(true);
+                    // Health check passed - test succeeds
                 }
                 Err(_) => {
                     // Redis not available, skip test

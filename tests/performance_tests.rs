@@ -200,15 +200,12 @@ async fn test_memory_usage_stability() {
     }
 
     println!(
-        "Memory stability test: {} successful requests out of {}",
-        successful_requests, STRESS_REQUESTS
+        "Memory stability test: {successful_requests} successful requests out of {STRESS_REQUESTS}"
     );
 
     // Should handle all requests successfully
     assert!(
         successful_requests >= STRESS_REQUESTS * 95 / 100,
-        "Only {}/{} requests succeeded, indicating potential memory issues",
-        successful_requests,
-        STRESS_REQUESTS
+        "Only {successful_requests}/{STRESS_REQUESTS} requests succeeded, indicating potential memory issues"
     );
 }
