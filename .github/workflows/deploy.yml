@@ -54,14 +54,59 @@ jobs:
         run: |
           echo "Deploying to staging environment..."
           echo "Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:staging"
-          # Add your deployment commands here
-          # Example: kubectl set image deployment/ratewatch ratewatch=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:staging
+
+          # Create staging deployment configuration
+          cat > staging-deploy.yml << EOF
+          version: '3.8'
+          services:
+            redis:
+              image: redis:7-alpine
+              command: redis-server --requirepass \${REDIS_PASSWORD}
+              environment:
+                - REDIS_PASSWORD=\${REDIS_PASSWORD}
+              healthcheck:
+                test: ["CMD", "redis-cli", "-a", "\${REDIS_PASSWORD}", "ping"]
+                interval: 10s
+                timeout: 5s
+                retries: 3
+            
+            ratewatch:
+              image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:staging
+              ports:
+                - "8081:8081"
+              environment:
+                - REDIS_URL=redis://:\${REDIS_PASSWORD}@redis:6379
+                - API_KEY_SECRET=\${API_KEY_SECRET}
+                - RUST_LOG=info
+              depends_on:
+                - redis
+              healthcheck:
+                test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+                interval: 30s
+                timeout: 10s
+                retries: 3
+          EOF
+
+          echo "Staging deployment configuration created"
 
       - name: Run smoke tests
         run: |
           echo "Running smoke tests against staging..."
-          # Add smoke test commands here
-          # Example: curl -f https://staging.ratewatch.dev/health
+
+          # Wait for service to be ready
+          timeout 60 bash -c 'until curl -f http://localhost:8081/health; do sleep 2; done'
+
+          # Test health endpoint
+          curl -f http://localhost:8081/health
+
+          # Test rate limiting with test API key
+          curl -X POST http://localhost:8081/v1/check \
+            -H "Authorization: Bearer test-api-key-12345678901234567890123" \
+            -H "Content-Type: application/json" \
+            -d '{"key": "staging-test", "limit": 10, "window": 60, "cost": 1}' \
+            -f
+
+          echo "✅ Staging smoke tests passed"
 
   deploy-production:
     name: Deploy to Production
