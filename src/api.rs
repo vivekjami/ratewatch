@@ -222,9 +222,7 @@ async fn get_user_data_summary(
     }
 }
 
-async fn health_check(
-    State(app_state): State<Arc<AppState>>,
-) -> Result<Json<Value>, StatusCode> {
+async fn health_check(State(app_state): State<Arc<AppState>>) -> Result<Json<Value>, StatusCode> {
     match app_state.health.quick_health_check().await {
         Ok(status) => {
             let response = json!({

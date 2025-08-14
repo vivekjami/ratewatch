@@ -61,7 +61,7 @@ impl HealthCheckManager {
     /// Perform comprehensive startup health validation
     pub async fn check_startup_health(&self) -> Result<HealthStatus> {
         tracing::info!("Starting comprehensive health check validation");
-        
+
         let mut dependencies = HashMap::new();
         let mut overall_status = ServiceStatus::Healthy;
 
@@ -92,19 +92,22 @@ impl HealthCheckManager {
             startup_time: self.startup_timestamp,
         };
 
-        tracing::info!("Health check completed with status: {:?}", health_status.status);
+        tracing::info!(
+            "Health check completed with status: {:?}",
+            health_status.status
+        );
         Ok(health_status)
     }
 
     /// Check Redis dependency with detailed validation
     async fn check_redis_dependency(&self) -> DependencyHealth {
         let start_time = Instant::now();
-        
+
         match timeout(Duration::from_secs(5), self.rate_limiter.health_check()).await {
             Ok(Ok(_)) => {
                 let latency = start_time.elapsed().as_millis() as u64;
                 tracing::debug!("Redis health check passed in {}ms", latency);
-                
+
                 DependencyHealth {
                     name: "redis".to_string(),
                     status: ServiceStatus::Healthy,
@@ -196,7 +199,7 @@ impl HealthCheckManager {
         } else {
             let error_message = errors.join(", ");
             tracing::error!("Configuration validation failed: {}", error_message);
-            
+
             DependencyHealth {
                 name: "configuration".to_string(),
                 status: ServiceStatus::Unhealthy,
@@ -210,7 +213,7 @@ impl HealthCheckManager {
     /// Get current health metrics
     fn get_health_metrics(&self) -> HealthMetrics {
         let uptime_seconds = self.startup_time.elapsed().as_secs();
-        
+
         HealthMetrics {
             uptime_seconds,
             memory_usage_mb: self.get_memory_usage(),
@@ -233,24 +236,24 @@ impl HealthCheckManager {
             Ok(Ok(_)) => {
                 tracing::debug!("Quick health check passed - Redis is healthy");
                 Ok(ServiceStatus::Healthy)
-            },
+            }
             Ok(Err(e)) => {
                 tracing::warn!("Quick health check degraded - Redis error: {}", e);
                 Ok(ServiceStatus::Degraded)
-            },
+            }
             Err(_) => {
                 tracing::error!("Quick health check failed - Redis timeout after 2 seconds");
                 Ok(ServiceStatus::Unhealthy)
-            },
+            }
         }
     }
 
     /// Validate that all dependencies are ready for service startup
     pub async fn validate_startup_dependencies(&self) -> Result<()> {
         tracing::info!("Validating startup dependencies...");
-        
+
         let health_status = self.check_startup_health().await?;
-        
+
         match health_status.status {
             ServiceStatus::Healthy => {
                 tracing::info!("✅ All startup dependencies are healthy");
@@ -266,31 +269,39 @@ impl HealthCheckManager {
                     .iter()
                     .filter(|(_, dep)| dep.status == ServiceStatus::Unhealthy)
                     .map(|(name, dep)| {
-                        format!("{}: {}", name, dep.error_message.as_deref().unwrap_or("Unknown error"))
+                        format!(
+                            "{}: {}",
+                            name,
+                            dep.error_message.as_deref().unwrap_or("Unknown error")
+                        )
                     })
                     .collect();
-                
-                let error_msg = format!("❌ Startup validation failed. Unhealthy dependencies: {}", unhealthy_deps.join(", "));
+
+                let error_msg = format!(
+                    "❌ Startup validation failed. Unhealthy dependencies: {}",
+                    unhealthy_deps.join(", ")
+                );
                 tracing::error!("{}", error_msg);
                 Err(anyhow::anyhow!(error_msg))
             }
-            ServiceStatus::Starting => {
-                Err(anyhow::anyhow!("⏳ Service is still starting up"))
-            }
+            ServiceStatus::Starting => Err(anyhow::anyhow!("⏳ Service is still starting up")),
         }
     }
 
     /// Check if service is ready to accept traffic (for readiness probes)
     pub async fn is_ready(&self) -> Result<bool> {
         let health_status = self.check_startup_health().await?;
-        
+
         match health_status.status {
             ServiceStatus::Healthy | ServiceStatus::Degraded => {
                 tracing::debug!("Service is ready to accept traffic");
                 Ok(true)
             }
             ServiceStatus::Unhealthy | ServiceStatus::Starting => {
-                tracing::debug!("Service is not ready to accept traffic: {:?}", health_status.status);
+                tracing::debug!(
+                    "Service is not ready to accept traffic: {:?}",
+                    health_status.status
+                );
                 Ok(false)
             }
         }
@@ -306,7 +317,7 @@ mod tests {
     async fn test_health_check_manager_creation() {
         let rate_limiter = Arc::new(RateLimiter::new("redis://127.0.0.1:6379").unwrap());
         let health_manager = HealthCheckManager::new(rate_limiter);
-        
+
         // Should be able to create health manager
         assert!(health_manager.startup_time.elapsed().as_millis() < 100);
     }
@@ -315,12 +326,12 @@ mod tests {
     async fn test_quick_health_check() {
         let rate_limiter = Arc::new(RateLimiter::new("redis://127.0.0.1:6379").unwrap());
         let health_manager = HealthCheckManager::new(rate_limiter);
-        
+
         // Quick health check should complete quickly
         let start = Instant::now();
         let _result = health_manager.quick_health_check().await;
         let duration = start.elapsed();
-        
+
         // Should complete within reasonable time
         assert!(duration < Duration::from_secs(5));
     }
@@ -341,10 +352,10 @@ mod tests {
             cpu_usage_percent: Some(15.5),
             active_connections: Some(42),
         };
-        
+
         let json = serde_json::to_string(&metrics).unwrap();
         let deserialized: HealthMetrics = serde_json::from_str(&json).unwrap();
-        
+
         assert_eq!(metrics.uptime_seconds, deserialized.uptime_seconds);
         assert_eq!(metrics.memory_usage_mb, deserialized.memory_usage_mb);
     }
