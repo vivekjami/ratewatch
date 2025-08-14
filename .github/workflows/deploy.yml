@@ -61,52 +61,105 @@ jobs:
           services:
             redis:
               image: redis:7-alpine
-              command: redis-server --requirepass \${REDIS_PASSWORD}
+              command: redis-server --requirepass \${REDIS_PASSWORD:-staging-redis-pass}
               environment:
-                - REDIS_PASSWORD=\${REDIS_PASSWORD}
+                - REDIS_PASSWORD=\${REDIS_PASSWORD:-staging-redis-pass}
               healthcheck:
-                test: ["CMD", "redis-cli", "-a", "\${REDIS_PASSWORD}", "ping"]
+                test: ["CMD", "redis-cli", "-a", "\${REDIS_PASSWORD:-staging-redis-pass}", "ping"]
                 interval: 10s
                 timeout: 5s
                 retries: 3
+              networks:
+                - ratewatch-network
             
             ratewatch:
               image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:staging
               ports:
                 - "8081:8081"
               environment:
-                - REDIS_URL=redis://:\${REDIS_PASSWORD}@redis:6379
-                - API_KEY_SECRET=\${API_KEY_SECRET}
+                - REDIS_URL=redis://:\${REDIS_PASSWORD:-staging-redis-pass}@redis:6379
+                - API_KEY_SECRET=\${API_KEY_SECRET:-test-api-key-12345678901234567890123}
                 - RUST_LOG=info
               depends_on:
-                - redis
+                redis:
+                  condition: service_healthy
               healthcheck:
-                test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+                test: ["CMD-SHELL", "curl -f http://localhost:8081/health/ready || exit 1"]
                 interval: 30s
                 timeout: 10s
-                retries: 3
+                retries: 5
+                start_period: 40s
+              networks:
+                - ratewatch-network
+
+          networks:
+            ratewatch-network:
+              driver: bridge
           EOF
 
           echo "Staging deployment configuration created"
+          
+          # Start the staging environment
+          export REDIS_PASSWORD=staging-redis-pass
+          export API_KEY_SECRET=test-api-key-12345678901234567890123
+          docker-compose -f staging-deploy.yml up -d
+          
+          echo "Waiting for services to be healthy..."
 
       - name: Run smoke tests
         run: |
           echo "Running smoke tests against staging..."
 
           # Wait for service to be ready
-          timeout 60 bash -c 'until curl -f http://localhost:8081/health; do sleep 2; done'
+          echo "Waiting for service to be ready..."
+          timeout 120 bash -c 'until curl -f http://localhost:8081/health/ready; do echo "Service not ready, waiting..."; sleep 5; done'
 
-          # Test health endpoint
+          # Test basic health endpoint
+          echo "Testing basic health endpoint..."
           curl -f http://localhost:8081/health
 
+          # Test detailed health endpoint
+          echo "Testing detailed health endpoint..."
+          curl -f http://localhost:8081/health/detailed
+
+          # Test readiness endpoint
+          echo "Testing readiness endpoint..."
+          curl -f http://localhost:8081/health/ready
+
           # Test rate limiting with test API key
+          echo "Testing rate limiting functionality..."
           curl -X POST http://localhost:8081/v1/check \
             -H "Authorization: Bearer test-api-key-12345678901234567890123" \
             -H "Content-Type: application/json" \
             -d '{"key": "staging-test", "limit": 10, "window": 60, "cost": 1}' \
             -f
 
-          echo "✅ Staging smoke tests passed"
+          # Test rate limit enforcement
+          echo "Testing rate limit enforcement..."
+          for i in {1..12}; do
+            response_code=$(curl -s -w "%{http_code}" -o /dev/null -X POST http://localhost:8081/v1/check \
+              -H "Authorization: Bearer test-api-key-12345678901234567890123" \
+              -H "Content-Type: application/json" \
+              -d '{"key": "rate-limit-test", "limit": 10, "window": 60, "cost": 1}')
+            
+            if [ $i -le 10 ] && [ "$response_code" != "200" ]; then
+              echo "❌ Expected 200 for request $i, got $response_code"
+              exit 1
+            elif [ $i -gt 10 ] && [ "$response_code" != "429" ]; then
+              echo "❌ Expected 429 for request $i (rate limited), got $response_code"
+              exit 1
+            fi
+            echo "Request $i: HTTP $response_code ✓"
+          done
+
+          echo "✅ All staging smoke tests passed"
+
+      - name: Cleanup staging environment
+        if: always()
+        run: |
+          echo "Cleaning up staging environment..."
+          docker-compose -f staging-deploy.yml down -v || true
+          docker system prune -f || true
 
   deploy-production:
     name: Deploy to Production

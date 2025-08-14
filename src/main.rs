@@ -1,6 +1,7 @@
 mod analytics;
 mod api;
 mod auth;
+mod health;
 mod metrics;
 mod privacy;
 mod rate_limiter;
@@ -12,6 +13,7 @@ use tokio::net::TcpListener;
 
 use analytics::AnalyticsManager;
 use auth::ApiKeyValidator;
+use health::HealthCheckManager;
 use privacy::PrivacyManager;
 
 #[tokio::main]
@@ -35,6 +37,22 @@ async fn main() -> Result<()> {
     // Initialize rate limiter
     let rate_limiter = Arc::new(rate_limiter::RateLimiter::new(&redis_url)?);
 
+    // Initialize health check manager
+    let health_manager = Arc::new(HealthCheckManager::new(rate_limiter.clone()));
+
+    // Perform startup health validation
+    tracing::info!("🔍 Performing startup health validation...");
+    match health_manager.validate_startup_dependencies().await {
+        Ok(_) => {
+            tracing::info!("✅ Startup health validation passed");
+        }
+        Err(e) => {
+            tracing::error!("❌ Startup health validation failed: {}", e);
+            tracing::error!("💡 Check Redis connectivity and configuration");
+            return Err(e);
+        }
+    }
+
     // Initialize security components
     let api_key_validator = Arc::new(ApiKeyValidator::new(api_key_secret));
     let privacy_manager = Arc::new(PrivacyManager::new(redis::Client::open(
@@ -50,6 +68,7 @@ async fn main() -> Result<()> {
         api_key_validator,
         privacy_manager,
         analytics_manager,
+        health_manager,
     );
 
     // Start server

@@ -34,6 +34,7 @@ ENV PORT=8081
 EXPOSE 8081
 
 # Distroless runs as nonroot user by default (uid 65532)
-# No health check in distroless - handle externally
+# Note: Health checks are handled externally by Kubernetes probes
+# since distroless doesn't include shell or curl
 
 CMD ["./ratewatch"]

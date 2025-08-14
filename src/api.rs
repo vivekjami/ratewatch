@@ -18,6 +18,7 @@ use tower_http::{
 
 use crate::analytics::AnalyticsManager;
 use crate::auth::{auth_middleware, ApiKeyValidator};
+use crate::health::HealthCheckManager;
 use crate::metrics;
 use crate::privacy::{DataDeletionRequest, PrivacyManager};
 use crate::rate_limiter::{RateLimitRequest, RateLimiter};
@@ -26,6 +27,7 @@ pub struct AppState {
     pub rate_limiter: Arc<RateLimiter>,
     pub analytics: Arc<AnalyticsManager>,
     pub privacy: Arc<PrivacyManager>,
+    pub health: Arc<HealthCheckManager>,
 }
 
 pub fn create_secure_router(
@@ -33,11 +35,13 @@ pub fn create_secure_router(
     api_key_validator: Arc<ApiKeyValidator>,
     privacy_manager: Arc<PrivacyManager>,
     analytics: Arc<AnalyticsManager>,
+    health_manager: Arc<HealthCheckManager>,
 ) -> Router {
     let app_state = Arc::new(AppState {
         rate_limiter,
         analytics: analytics.clone(),
         privacy: privacy_manager,
+        health: health_manager,
     });
 
     // Protected routes that require authentication
@@ -62,6 +66,7 @@ pub fn create_secure_router(
         .route("/dashboard", get(serve_dashboard))
         .route("/health", get(health_check))
         .route("/health/detailed", get(detailed_health_check))
+        .route("/health/ready", get(readiness_check))
         .nest_service("/static", ServeDir::new("static"))
         .with_state(app_state);
 
@@ -217,42 +222,93 @@ async fn get_user_data_summary(
     }
 }
 
-async fn health_check() -> Json<Value> {
-    Json(json!({
-        "status": "ok",
-        "timestamp": chrono::Utc::now().to_rfc3339(),
-        "version": env!("CARGO_PKG_VERSION")
-    }))
+async fn health_check(
+    State(app_state): State<Arc<AppState>>,
+) -> Result<Json<Value>, StatusCode> {
+    match app_state.health.quick_health_check().await {
+        Ok(status) => {
+            let response = json!({
+                "status": match status {
+                    crate::health::ServiceStatus::Healthy => "ok",
+                    crate::health::ServiceStatus::Degraded => "degraded",
+                    crate::health::ServiceStatus::Unhealthy => "unhealthy",
+                    crate::health::ServiceStatus::Starting => "starting",
+                },
+                "timestamp": chrono::Utc::now().to_rfc3339(),
+                "version": env!("CARGO_PKG_VERSION")
+            });
+
+            match status {
+                crate::health::ServiceStatus::Healthy | crate::health::ServiceStatus::Degraded => {
+                    Ok(Json(response))
+                }
+                _ => Err(StatusCode::SERVICE_UNAVAILABLE),
+            }
+        }
+        Err(e) => {
+            tracing::error!("Health check failed: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
 }
 
 async fn detailed_health_check(
     State(app_state): State<Arc<AppState>>,
 ) -> Result<Json<Value>, StatusCode> {
-    // Test Redis connectivity
-    let redis_status = match app_state.rate_limiter.health_check().await {
-        Ok(_) => "healthy",
-        Err(_) => "unhealthy",
-    };
+    match app_state.health.check_startup_health().await {
+        Ok(health_status) => {
+            let response = json!({
+                "status": match health_status.status {
+                    crate::health::ServiceStatus::Healthy => "ok",
+                    crate::health::ServiceStatus::Degraded => "degraded",
+                    crate::health::ServiceStatus::Unhealthy => "unhealthy",
+                    crate::health::ServiceStatus::Starting => "starting",
+                },
+                "timestamp": health_status.timestamp.to_rfc3339(),
+                "version": health_status.version,
+                "startup_time": health_status.startup_time.to_rfc3339(),
+                "uptime_seconds": health_status.metrics.uptime_seconds,
+                "dependencies": health_status.dependencies,
+                "metrics": health_status.metrics
+            });
 
-    let health_data = json!({
-        "status": if redis_status == "healthy" { "ok" } else { "degraded" },
-        "timestamp": chrono::Utc::now().to_rfc3339(),
-        "version": env!("CARGO_PKG_VERSION"),
-        "uptime": "99.9%", // Mock value - implement real uptime tracking
-        "dependencies": {
-            "redis": {
-                "status": redis_status,
-                "latency_ms": 1 // Mock latency - implement real measurement
-            },
-            "api": {
-                "status": "healthy"
+            match health_status.status {
+                crate::health::ServiceStatus::Healthy | crate::health::ServiceStatus::Degraded => {
+                    Ok(Json(response))
+                }
+                _ => Err(StatusCode::SERVICE_UNAVAILABLE),
             }
         }
-    });
+        Err(e) => {
+            tracing::error!("Detailed health check failed: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
+}
 
-    if redis_status == "healthy" {
-        Ok(Json(health_data))
-    } else {
-        Err(StatusCode::SERVICE_UNAVAILABLE)
+async fn readiness_check(
+    State(app_state): State<Arc<AppState>>,
+) -> Result<Json<Value>, StatusCode> {
+    match app_state.health.is_ready().await {
+        Ok(true) => {
+            let response = json!({
+                "status": "ready",
+                "timestamp": chrono::Utc::now().to_rfc3339(),
+                "version": env!("CARGO_PKG_VERSION")
+            });
+            Ok(Json(response))
+        }
+        Ok(false) => {
+            let _response = json!({
+                "status": "not_ready",
+                "timestamp": chrono::Utc::now().to_rfc3339(),
+                "version": env!("CARGO_PKG_VERSION")
+            });
+            Err(StatusCode::SERVICE_UNAVAILABLE)
+        }
+        Err(e) => {
+            tracing::error!("Readiness check failed: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
     }
 }
