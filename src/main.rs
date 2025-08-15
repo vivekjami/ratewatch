@@ -1,6 +1,7 @@
 mod analytics;
 mod api;
 mod auth;
+mod config;
 mod health;
 mod metrics;
 mod privacy;
@@ -13,6 +14,7 @@ use tokio::net::TcpListener;
 
 use analytics::AnalyticsManager;
 use auth::ApiKeyValidator;
+use config::ConfigManager;
 use health::HealthCheckManager;
 use privacy::PrivacyManager;
 
@@ -21,14 +23,31 @@ async fn main() -> Result<()> {
     // Load environment variables
     dotenv().ok();
 
-    // Initialize logging
-    tracing_subscriber::fmt::init();
+    // Initialize enterprise configuration management
+    tracing::info!("🔧 Initializing enterprise configuration management...");
+    let config_manager = ConfigManager::new().await?;
+    let enterprise_config = config_manager.get_config().await;
 
-    // Get configuration from environment
+    // Initialize structured logging based on configuration
+    let log_level = enterprise_config.observability.logging.level.as_str();
+    let log_format = &enterprise_config.observability.logging.format;
+    
+    if log_format == "json" && enterprise_config.observability.logging.structured {
+        tracing_subscriber::fmt()
+            .json()
+            .with_env_filter(log_level)
+            .init();
+    } else {
+        tracing_subscriber::fmt()
+            .with_env_filter(log_level)
+            .init();
+    }
+
+    tracing::info!("✅ Enterprise configuration loaded and validated");
+
+    // Extract configuration values
     let redis_url = env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
-    let port = env::var("PORT")
-        .unwrap_or_else(|_| "8081".to_string())
-        .parse::<u16>()?;
+    let port = enterprise_config.server.port;
     let api_key_secret = env::var("API_KEY_SECRET").unwrap_or_else(|_| {
         tracing::warn!("Using default API_KEY_SECRET - change this in production!");
         "change-this-in-production".to_string()

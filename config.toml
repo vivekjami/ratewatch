@@ -1,0 +1,98 @@
+# RateWatch Enterprise Configuration
+
+[server]
+port = 8081
+host = "0.0.0.0"
+worker_threads = 4
+
+[security]
+[security.audit]
+enabled = true
+storage_backend = "redis"
+digital_signing = true
+retention_days = 90
+
+[security.threat_detection]
+enabled = true
+behavioral_analysis = true
+ip_reputation = true
+ml_engine = false
+threat_threshold = 0.7
+
+[security.secrets]
+provider = "env"
+
+[security.compliance]
+gdpr_enabled = true
+ccpa_enabled = true
+retention_days = 30
+
+[observability]
+[observability.metrics]
+enabled = true
+endpoint = "/metrics"
+collection_interval_seconds = 15
+
+[observability.tracing]
+enabled = true
+service_name = "ratewatch"
+sampling_rate = 0.1
+
+[observability.alerting]
+enabled = true
+
+[observability.alerting.thresholds]
+error_rate = 0.05
+response_time_p99 = 500.0
+cpu_usage = 80.0
+memory_usage = 85.0
+
+[observability.logging]
+level = "info"
+format = "json"
+structured = true
+
+[tenancy]
+enabled = false
+
+[tenancy.default_quotas]
+max_requests_per_second = 1000
+max_api_keys = 10
+max_storage_mb = 100
+max_retention_days = 30
+
+[disaster_recovery]
+[disaster_recovery.backup]
+enabled = true
+storage_backends = ["local"]
+schedule = "0 2 * * *"
+retention_days = 30
+encryption_enabled = true
+
+[disaster_recovery.replication]
+enabled = false
+replicas = []
+sync_mode = "Asynchronous"
+
+[disaster_recovery.failover]
+enabled = false
+health_check_interval_seconds = 30
+failure_threshold = 3
+automatic_failback = false
+
+[infrastructure]
+cloud_providers = []
+
+[infrastructure.auto_scaling]
+enabled = false
+min_instances = 1
+max_instances = 10
+metrics = []
+
+[infrastructure.deployment]
+strategy = "rolling"
+
+[infrastructure.deployment.rollback]
+automatic = true
+failure_threshold = 3
+timeout_seconds = 300
