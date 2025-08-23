@@ -17,6 +17,7 @@ use tower_http::{
 };
 
 use crate::analytics::AnalyticsManager;
+use crate::audit::{AuditLogger, audit_event::{ActorInfo, AuditOutcome}};
 use crate::auth::{auth_middleware, ApiKeyValidator};
 use crate::health::HealthCheckManager;
 use crate::metrics;
@@ -28,6 +29,7 @@ pub struct AppState {
     pub analytics: Arc<AnalyticsManager>,
     pub privacy: Arc<PrivacyManager>,
     pub health: Arc<HealthCheckManager>,
+    pub audit: Arc<AuditLogger>,
 }
 
 pub fn create_secure_router(
@@ -36,12 +38,14 @@ pub fn create_secure_router(
     privacy_manager: Arc<PrivacyManager>,
     analytics: Arc<AnalyticsManager>,
     health_manager: Arc<HealthCheckManager>,
+    audit_logger: Arc<AuditLogger>,
 ) -> Router {
     let app_state = Arc::new(AppState {
         rate_limiter,
         analytics: analytics.clone(),
         privacy: privacy_manager,
         health: health_manager,
+        audit: audit_logger,
     });
 
     // Protected routes that require authentication
@@ -57,6 +61,11 @@ pub fn create_secure_router(
 
     // Analytics routes (also protected)
     let analytics_routes = crate::analytics::create_analytics_router(analytics).layer(
+        middleware::from_fn_with_state(api_key_validator.clone(), auth_middleware),
+    );
+
+    // Audit routes (also protected)
+    let audit_routes = crate::audit::api::create_audit_router(app_state.audit.clone()).layer(
         middleware::from_fn_with_state(api_key_validator, auth_middleware),
     );
 
@@ -74,6 +83,7 @@ pub fn create_secure_router(
     Router::new()
         .merge(protected_routes)
         .merge(analytics_routes)
+        .merge(audit_routes)
         .merge(public_routes)
         .merge(metrics::create_metrics_router())
         .layer(
@@ -134,6 +144,21 @@ async fn check_rate_limit(
                 metrics::RATE_LIMIT_HITS.inc();
             } else {
                 metrics::RATE_LIMIT_MISSES.inc();
+                
+                // Log security event for rate limit exceeded
+                let actor = ActorInfo::new(); // Would be populated from request context
+                let _ = app_state
+                    .audit
+                    .log_security_event(
+                        actor,
+                        "rate_limit_exceeded",
+                        "rate_limiter",
+                        AuditOutcome::Success, // Successfully blocked the request
+                        None, // tenant_id
+                        Some("medium"),
+                        Some(&format!("Rate limit exceeded for key: {}", payload.key)),
+                    )
+                    .await;
             }
 
             // Record analytics
@@ -158,6 +183,21 @@ async fn check_rate_limit(
             Ok(Json(json!(response)))
         }
         Err(err) => {
+            // Log system error
+            let actor = ActorInfo::new();
+            let _ = app_state
+                .audit
+                .log_security_event(
+                    actor,
+                    "rate_limit_check_failed",
+                    "rate_limiter",
+                    AuditOutcome::Failure,
+                    None,
+                    Some("high"),
+                    Some(&format!("Rate limit check failed: {}", err)),
+                )
+                .await;
+
             let _ = app_state
                 .analytics
                 .log_activity(
@@ -179,6 +219,24 @@ async fn delete_user_data(
 ) -> Result<Json<Value>, StatusCode> {
     match app_state.privacy.delete_user_data(&payload.user_id).await {
         Ok(response) => {
+            // Log privacy event for data deletion
+            let actor = ActorInfo::new(); // Would be populated from request context
+            let _ = app_state
+                .audit
+                .log_admin_action(
+                    actor,
+                    "delete_user_data",
+                    "user_data",
+                    Some(&payload.user_id),
+                    AuditOutcome::Success,
+                    None, // tenant_id
+                    Some(json!({
+                        "reason": payload.reason,
+                        "deleted_records": response.deleted_keys
+                    })),
+                )
+                .await;
+
             let _ = app_state
                 .analytics
                 .log_activity(
@@ -195,6 +253,24 @@ async fn delete_user_data(
             Ok(Json(json!(response)))
         }
         Err(err) => {
+            // Log failed data deletion attempt
+            let actor = ActorInfo::new();
+            let _ = app_state
+                .audit
+                .log_admin_action(
+                    actor,
+                    "delete_user_data",
+                    "user_data",
+                    Some(&payload.user_id),
+                    AuditOutcome::Failure,
+                    None,
+                    Some(json!({
+                        "reason": payload.reason,
+                        "error": err.to_string()
+                    })),
+                )
+                .await;
+
             tracing::error!("Data deletion failed: {}", err);
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }

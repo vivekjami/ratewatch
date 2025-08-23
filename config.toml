@@ -40,6 +40,7 @@ sampling_rate = 0.1
 
 [observability.alerting]
 enabled = true
+channels = []
 
 [observability.alerting.thresholds]
 error_rate = 0.05
@@ -54,6 +55,7 @@ structured = true
 
 [tenancy]
 enabled = false
+isolation_level = "Strict"
 
 [tenancy.default_quotas]
 max_requests_per_second = 1000

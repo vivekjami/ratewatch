@@ -1,5 +1,6 @@
 mod analytics;
 mod api;
+mod audit;
 mod auth;
 mod config;
 mod health;
@@ -13,6 +14,7 @@ use std::{env, sync::Arc};
 use tokio::net::TcpListener;
 
 use analytics::AnalyticsManager;
+
 use auth::ApiKeyValidator;
 use config::ConfigManager;
 use health::HealthCheckManager;
@@ -72,6 +74,22 @@ async fn main() -> Result<()> {
         }
     }
 
+    // Initialize audit system
+    tracing::info!("🔍 Initializing enterprise audit system...");
+    let audit_signing_key = env::var("AUDIT_SIGNING_KEY").unwrap_or_else(|_| {
+        tracing::warn!("Using default AUDIT_SIGNING_KEY - change this in production!");
+        "change-this-audit-signing-key-in-production-must-be-at-least-32-chars".to_string()
+    });
+    
+    let audit_logger = audit::initialize_audit_system(
+        "redis", // Use Redis for audit storage
+        Some(redis::Client::open(redis_url.as_str())?),
+        None,
+        &audit_signing_key,
+    ).await?;
+    
+    tracing::info!("✅ Enterprise audit system initialized");
+
     // Initialize security components
     let api_key_validator = Arc::new(ApiKeyValidator::new(api_key_secret));
     let privacy_manager = Arc::new(PrivacyManager::new(redis::Client::open(
@@ -88,6 +106,7 @@ async fn main() -> Result<()> {
         privacy_manager,
         analytics_manager,
         health_manager,
+        audit_logger,
     );
 
     // Start server

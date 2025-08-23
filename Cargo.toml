@@ -31,7 +31,7 @@ chrono = { version = "0.4", features = ["serde"] }
 # Cryptographic hashing for API keys
 blake3 = "1.5"
 # HTTP middleware and utilities
-tower = "0.4"
+tower = { version = "0.4", features = ["util"] }
 tower-http = { version = "0.5", features = ["cors", "trace", "set-header", "fs"] }
 # Hex encoding for API key hashes
 hex = "0.4"
@@ -58,6 +58,13 @@ notify = "6.1"
 serde_yaml = "0.9"
 # TOML support for configuration
 toml = "0.8"
+# HMAC for digital signatures
+hmac = "0.12"
+sha2 = "0.10"
+# Constant time comparison for security
+constant_time_eq = "0.3"
+# Random number generation
+rand = "0.8"
 
 [profile.release]
 # Optimize for performance and size
