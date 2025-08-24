@@ -23,6 +23,8 @@ use crate::health::HealthCheckManager;
 use crate::metrics;
 use crate::privacy::{DataDeletionRequest, PrivacyManager};
 use crate::rate_limiter::{RateLimitRequest, RateLimiter};
+use crate::security::{ThreatDetector, threat_analyzer::RequestContext};
+use crate::tenant::TenantManager;
 
 pub struct AppState {
     pub rate_limiter: Arc<RateLimiter>,
@@ -30,6 +32,8 @@ pub struct AppState {
     pub privacy: Arc<PrivacyManager>,
     pub health: Arc<HealthCheckManager>,
     pub audit: Arc<AuditLogger>,
+    pub threat_detector: Arc<ThreatDetector>,
+    pub tenant_manager: Arc<tokio::sync::Mutex<TenantManager>>,
 }
 
 pub fn create_secure_router(
@@ -39,6 +43,8 @@ pub fn create_secure_router(
     analytics: Arc<AnalyticsManager>,
     health_manager: Arc<HealthCheckManager>,
     audit_logger: Arc<AuditLogger>,
+    threat_detector: Arc<ThreatDetector>,
+    tenant_manager: Arc<tokio::sync::Mutex<TenantManager>>,
 ) -> Router {
     let app_state = Arc::new(AppState {
         rate_limiter,
@@ -46,13 +52,19 @@ pub fn create_secure_router(
         privacy: privacy_manager,
         health: health_manager,
         audit: audit_logger,
+        threat_detector,
+        tenant_manager: tenant_manager.clone(),
     });
 
-    // Protected routes that require authentication
+    // Protected routes that require authentication and threat detection
     let protected_routes = Router::new()
         .route("/v1/check", post(check_rate_limit))
         .route("/v1/privacy/delete", post(delete_user_data))
         .route("/v1/privacy/summary", post(get_user_data_summary))
+        .layer(middleware::from_fn_with_state(
+            app_state.threat_detector.clone(),
+            crate::security::middleware::threat_detection_middleware,
+        ))
         .layer(middleware::from_fn_with_state(
             api_key_validator.clone(),
             auth_middleware,
@@ -66,8 +78,29 @@ pub fn create_secure_router(
 
     // Audit routes (also protected)
     let audit_routes = crate::audit::api::create_audit_router(app_state.audit.clone()).layer(
-        middleware::from_fn_with_state(api_key_validator, auth_middleware),
+        middleware::from_fn_with_state(api_key_validator.clone(), auth_middleware),
     );
+
+    // Security routes (also protected)
+    let security_routes = crate::security::api::create_security_router(app_state.threat_detector.clone()).layer(
+        middleware::from_fn_with_state(api_key_validator.clone(), auth_middleware),
+    );
+
+    // Tenant management routes (also protected)
+    let tenant_routes = crate::tenant::api::create_tenant_routes()
+        .layer(middleware::from_fn_with_state(
+            tenant_manager.clone(),
+            crate::tenant::middleware::tenant_resolution_middleware,
+        ))
+        .layer(middleware::from_fn_with_state(
+            tenant_manager.clone(),
+            crate::tenant::middleware::tenant_quota_middleware,
+        ))
+        .layer(middleware::from_fn_with_state(
+            api_key_validator,
+            auth_middleware,
+        ))
+        .with_state(tenant_manager);
 
     // Public routes (no authentication required)
     let public_routes = Router::new()
@@ -84,6 +117,8 @@ pub fn create_secure_router(
         .merge(protected_routes)
         .merge(analytics_routes)
         .merge(audit_routes)
+        .merge(security_routes)
+        .merge(tenant_routes)
         .merge(public_routes)
         .merge(metrics::create_metrics_router())
         .layer(

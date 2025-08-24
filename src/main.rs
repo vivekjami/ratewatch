@@ -7,6 +7,8 @@ mod health;
 mod metrics;
 mod privacy;
 mod rate_limiter;
+mod security;
+mod tenant;
 
 use anyhow::Result;
 use dotenvy::dotenv;
@@ -14,11 +16,12 @@ use std::{env, sync::Arc};
 use tokio::net::TcpListener;
 
 use analytics::AnalyticsManager;
-
 use auth::ApiKeyValidator;
 use config::ConfigManager;
 use health::HealthCheckManager;
 use privacy::PrivacyManager;
+use security::ThreatDetector;
+use tenant::TenantManager;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -90,6 +93,22 @@ async fn main() -> Result<()> {
     
     tracing::info!("✅ Enterprise audit system initialized");
 
+    // Initialize threat detection system
+    tracing::info!("🛡️ Initializing threat detection system...");
+    let threat_detector = security::initialize_security_system(
+        redis::Client::open(redis_url.as_str())?,
+        &enterprise_config.security,
+    ).await?;
+    
+    tracing::info!("✅ Threat detection system initialized");
+
+    // Initialize tenant management system
+    tracing::info!("🏢 Initializing multi-tenant management system...");
+    let tenant_manager = Arc::new(tokio::sync::Mutex::new(
+        TenantManager::new(&redis_url, "ratewatch".to_string())?
+    ));
+    tracing::info!("✅ Multi-tenant management system initialized");
+
     // Initialize security components
     let api_key_validator = Arc::new(ApiKeyValidator::new(api_key_secret));
     let privacy_manager = Arc::new(PrivacyManager::new(redis::Client::open(
@@ -107,6 +126,8 @@ async fn main() -> Result<()> {
         analytics_manager,
         health_manager,
         audit_logger,
+        threat_detector,
+        tenant_manager,
     );
 
     // Start server

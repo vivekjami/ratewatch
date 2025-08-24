@@ -2549,6 +2549,7 @@ dependencies = [
  "hashicorp_vault",
  "hex",
  "hmac",
+ "ipnet",
  "notify",
  "once_cell",
  "prometheus",

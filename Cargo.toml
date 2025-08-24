@@ -65,6 +65,8 @@ sha2 = "0.10"
 constant_time_eq = "0.3"
 # Random number generation
 rand = "0.8"
+# IP address parsing
+ipnet = "2.9"
 
 [profile.release]
 # Optimize for performance and size
